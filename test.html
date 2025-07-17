@@ -1,13 +1,61 @@
+<!DOCTYPE html>
 <html>
- <head>
-   <title>Bangle.js Accelerometer streaming in 3D</title>
- </head>
- <body style="margin:0px">
-<script src="https://www.puck-js.com/puck.js"></script>
-<button id="btnConnect" style="position:absolute;left:5px;top:5px;z-index:1000">Connect</button>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r99/three.min.js"></script>
+<head>
+  <title>Bangle.js Accelerometer Dashboard</title>
+  <script src="https://www.puck-js.com/puck.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r99/three.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: row;
+    }
+    #panel2d, #panel3d {
+      flex: 1;
+      height: 100vh;
+      box-sizing: border-box;
+      padding: 10px;
+    }
+    .bar {
+      width : 500px;
+      height: 24px;
+      background-color : #D0D0D0;
+      position:relative;
+      display: inline-block;
+    }
+    .bar span {
+      width : 1px;
+      height: 20px;
+      background-color : red;
+      position:absolute;
+      display: inline-block;
+      left: 150px;
+      top: 2px;
+    }
+    #btnConnect {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <button id="btnConnect">Connect</button>
+
+  <!-- Painel 2D com barras -->
+  <div id="panel2d">
+    <p>X: <span class="bar"><span id="barX"></span></span></p>
+    <p>Y: <span class="bar"><span id="barY"></span></span></p>
+    <p>Z: <span class="bar"><span id="barZ"></span></span></p>
+  </div>
+
+  <!-- Painel 3D -->
+  <div id="panel3d"></div>
+
 <script>
-// Code to upload to Bangle.js
+// Código a ser enviado ao Bangle.js
 var BANGLE_CODE = `
 Bangle.on('accel',function(a) {
   var d = [
@@ -19,25 +67,24 @@ Bangle.on('accel',function(a) {
   Bluetooth.println(d.join(","));
 })
 `;
-var accel = new THREE.Vector3( 0, 0, 1 );
 
-// When we click the connect button...
-var connection;
+let connection;
+let accel = new THREE.Vector3(0, 0, 1);
+
+// Conexão com o Bangle.js
 document.getElementById("btnConnect").addEventListener("click", function() {
-  // disconnect if connected already
   if (connection) {
     connection.close();
     connection = undefined;
+    return;
   }
-  // Connect
+
   Puck.connect(function(c) {
     if (!c) {
       alert("Couldn't connect!");
       return;
     }
     connection = c;
-    // Handle the data we get back, and call 'onLine'
-    // whenever we get a line
     var buf = "";
     connection.on("data", function(d) {
       buf += d;
@@ -45,11 +92,9 @@ document.getElementById("btnConnect").addEventListener("click", function() {
       buf = l.pop();
       l.forEach(onLine);
     });
-    // First, reset the Bangle
+
     connection.write("reset();\n", function() {
-      // Wait for it to reset itself
       setTimeout(function() {
-        // Now upload our code to it
         connection.write("\x03\x10if(1){"+BANGLE_CODE+"}\n",
           function() { console.log("Ready..."); });
       }, 1500);
@@ -57,45 +102,66 @@ document.getElementById("btnConnect").addEventListener("click", function() {
   });
 });
 
-// When we get a line of data, check it and if it's
-// from the accelerometer, update it
+// Processa os dados recebidos
 function onLine(line) {
-  console.log("RECEIVED:"+line);
+  console.log("RECEIVED:" + line);
   var d = line.split(",");
-  if (d.length==4 && d[0]=="A") {
-    // we have an accelerometer reading
-    accel.x = parseInt(d[1])/100;
-    accel.y = parseInt(d[2])/100;
-    accel.z = parseInt(d[3])/100;
+  if (d.length == 4 && d[0] == "A") {
+    const x = parseInt(d[1]);
+    const y = parseInt(d[2]);
+    const z = parseInt(d[3]);
+
+    accel.set(x/100, y/100, z/100);
+    updateBars(x, y, z);
     render();
   }
 }
-// WebGL boilerplate
+
+// Atualiza barras 2D
+function updateBars(x, y, z) {
+  setBarPos("barX", x);
+  setBarPos("barY", y);
+  setBarPos("barZ", z);
+}
+
+function setBarPos(id, d) {
+  var s = document.getElementById(id).style;
+  if (d > 150) d = 150;
+  if (d < -150) d = -150;
+  if (d >= 0) {
+    s.left = "150px";
+    s.width = d + "px";
+  } else {
+    s.left = (150 + d) + "px";
+    s.width = (-d) + "px";
+  }
+}
+
+// WebGL com THREE.js
 var scene, camera, renderer, cube;
-var WIDTH  = window.innerWidth;
-var HEIGHT = window.innerHeight;
-function init() {
-    scene = new THREE.Scene();
+function init3D() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, 1, 1, 10);
+  camera.position.set(0, 3.5, 5);
+  camera.lookAt(scene.position);
 
-    camera = new THREE.PerspectiveCamera(70, WIDTH / HEIGHT, 1, 10);
-    camera.position.set(0, 3.5, 5);
-    camera.lookAt(scene.position);
+  cube = new THREE.Mesh(
+    new THREE.BoxGeometry(2, 2, 2),
+    new THREE.MeshNormalMaterial()
+  );
+  scene.add(cube);
 
-    cube = new THREE.Mesh(new THREE.CubeGeometry(2, 2, 2), new THREE.MeshNormalMaterial());
-    scene.add(cube);
-
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(WIDTH, HEIGHT);
-
-    document.body.appendChild(renderer.domElement);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(panel3d.clientWidth, panel3d.clientHeight);
+  document.getElementById("panel3d").appendChild(renderer.domElement);
 }
 function render() {
-    cube.lookAt(accel);
-    renderer.render(scene, camera);
+  cube.lookAt(accel);
+  renderer.render(scene, camera);
 }
 
-init();
+init3D();
 render();
 </script>
- </body>
+</body>
 </html>

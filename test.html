@@ -1,164 +1,179 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Dashboard Bangle.js - 5 Apps</title>
+  <title>Dashboard Bangle.js</title>
   <script src="https://www.puck-js.com/puck.js"></script>
   <script src="https://cdn.canvasjs.com/canvasjs.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <style>
-    body { font-family: sans-serif; margin: 20px; }
-    h1 { margin-bottom: 10px; }
-    button { margin-bottom: 20px; padding: 10px 20px; }
-    .panel { margin-top: 30px; }
-    #accCanvas canvas { display: block; }
-  </style>
 </head>
-<body>
+<body style="font-family:sans-serif; padding:20px">
+
   <h1>Dashboard Bangle.js</h1>
   <button id="btnConnectAll">Conectar o Bangle.js</button>
 
-  <!-- App 1: Heart Rate -->
-  <div class="panel">
+  <!-- Aplicação 1: Frequência cardíaca -->
+  <div style="margin-top:30px;">
     <h2>Frequência Cardíaca</h2>
-    <div id="heartChart" style="height:300px; width:100%;"></div>
+    <div id="heartChart" style="height: 300px; width: 100%;"></div>
   </div>
 
-  <!-- App 2: Accelerometer 3D -->
-  <div class="panel">
+  <!-- Aplicação 2: Acelerômetro 3D -->
+  <div style="margin-top:30px;">
     <h2>Acelerômetro 3D</h2>
-    <div id="accCanvas" style="width:400px; height:400px;"></div>
+    <div id="accCanvas" style="width: 400px; height: 400px;"></div>
   </div>
 
-  <!-- App 3: Temperature -->
-  <div class="panel">
+  <!-- Aplicação 3: Temperatura -->
+  <div style="margin-top:30px;">
     <h2>Temperatura</h2>
-    <div id="tempDisplay" style="font-size:40px;">-- °C</div>
+    <div id="tempDisplay" style="font-size: 40px; margin: 10px;">Carregando...</div>
   </div>
 
-  <!-- App 4: Steps -->
-  <div class="panel">
+  <!-- Aplicação 4: Passos -->
+  <div style="margin-top:30px;">
     <h2>Contador de Passos</h2>
-    <div id="stepCount" style="font-size:40px;">Passos: 0</div>
-  </div>
-
-  <!-- App 5: Clock -->
-  <div class="panel">
-    <h2>Relógio (fonte grande)</h2>
-    <div id="clockLarge" style="font-size:60px; font-weight:bold; text-align:center;">--:--</div>
-    <div id="clockDate" style="font-size:24px; text-align:center;">--------------</div>
+    <div id="stepCount" style="font-size: 40px; margin: 10px;">Passos: 0</div>
   </div>
 
   <script>
-  // --- Código que roda no Bangle.js e envia via Bluetooth ---
-  const BANGLE_CODE = `
+    const BANGLE_CODE = `
     Bangle.setHRMPower(1);
     Bangle.setStepCount(0);
+    var hrm = 0, steps = 0;
 
-    setInterval(() => {
-      const acc = Bangle.getAccel();
+    setInterval(function() {
+      var acc = Bangle.getAccel();
       Bluetooth.println("A," + acc.x + "," + acc.y + "," + acc.z);
     }, 200);
 
-    Bangle.on('HRM', hrm => Bluetooth.println("H," + hrm.bpm));
+    Bangle.on('HRM', function(hrmData) {
+      hrm = hrmData.bpm;
+      Bluetooth.println("H," + hrm);
+    });
 
-    let lastSteps = 0;
+    var lastSteps = 0;
     setInterval(() => {
-      const s = Bangle.getStepCount();
-      if (s !== lastSteps) {
-        Bluetooth.println("S," + s);
-        lastSteps = s;
+      steps = Bangle.getStepCount();
+      if (steps !== lastSteps) {
+        Bluetooth.println("S," + steps);
+        lastSteps = steps;
       }
     }, 1000);
 
-    function doTemp() {
+    function sendTemp() {
       if (Bangle.getPressure) {
         Bangle.getPressure().then(p => {
           if (p && p.temperature) Bluetooth.println("T," + p.temperature);
         });
       } else {
-        Bluetooth.println("T," + E.getTemperature());
+        var t = E.getTemperature();
+        Bluetooth.println("T," + t);
       }
     }
-    doTemp();
-    setInterval(doTemp, 5000);
-  `;
+    setInterval(sendTemp, 5000);
+    sendTemp();
+    `;
 
-  let conn, buffer = "";
-  let chartData = [];
+    var connection;
+    var buffer = "";
+    var chart, chartData = [];
 
-  // Inicializa gráfico
-  window.onload = () => {
-    new CanvasJS.Chart("heartChart", {
-      axisY: { includeZero: false },
-      data: [{ type: "line", dataPoints: chartData }]
-    }).render();
-  };
-
-  // Inicializa cubo 3D
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-  const renderer = new THREE.WebGLRenderer();
-  renderer.setSize(400, 400);
-  document.getElementById("accCanvas").appendChild(renderer.domElement);
-  const cube = new THREE.Mesh(
-    new THREE.BoxGeometry(1,1,1),
-    new THREE.MeshNormalMaterial()
-  );
-  scene.add(cube);
-  camera.position.z = 3;
-  (function renderLoop() {
-    requestAnimationFrame(renderLoop);
-    renderer.render(scene, camera);
-  })();
-
-  function updateClock() {
-    const now = new Date();
-    document.getElementById("clockLarge").innerText = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    document.getElementById("clockDate").innerText = now.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' });
-  }
-  setInterval(updateClock, 1000);
-  updateClock();
-
-  function handleLine(line) {
-    const parts = line.split(',');
-    if (parts[0]==="H") {
-      const bpm = parseInt(parts[1]);
-      chartData.push({ x: new Date(), y: bpm });
-      if (chartData.length > 30) chartData.shift();
-      CanvasJS.charts[0].render();
-    } else if (parts[0]==="A") {
-      const [x,y,z] = parts.slice(1).map(parseFloat);
-      cube.rotation.x = y;
-      cube.rotation.y = x;
-      cube.rotation.z = z;
-    } else if (parts[0]==="T") {
-      document.getElementById("tempDisplay").innerText = parseFloat(parts[1]).toFixed(1) + " °C";
-    } else if (parts[0]==="S") {
-      document.getElementById("stepCount").innerText = "Passos: " + parseInt(parts[1]);
-    }
-  }
-
-  document.getElementById("btnConnectAll").addEventListener("click", () => {
-    if (conn) {
-      conn.close();
-      conn = undefined;
-      return;
-    }
-    Puck.connect(c => {
-      if (!c) return alert("Erro ao conectar!");
-      conn = c;
-      conn.on('data', d => {
-        buffer += d;
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        lines.forEach(handleLine);
+    // Inicializa gráfico
+    window.onload = function () {
+      chart = new CanvasJS.Chart("heartChart", {
+        title: { text: "" },
+        axisY: { title: "BPM", includeZero: false },
+        data: [{ type: "line", dataPoints: chartData }]
       });
-      conn.write("reset();\n", () => {
-        setTimeout(() => conn.write("\x03\x10if(1){"+BANGLE_CODE+"}\n"), 1500);
+      chart.render();
+    };
+
+    // Inicializa visualização 3D
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+    var renderer = new THREE.WebGLRenderer();
+    renderer.setSize(400, 400);
+    document.getElementById("accCanvas").appendChild(renderer.domElement);
+
+    var geometry = new THREE.BoxGeometry(1, 1, 1);
+    var material = new THREE.MeshNormalMaterial();
+    var cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+    camera.position.z = 3;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    function handleData(line) {
+      const parts = line.trim().split(",");
+      if (parts.length < 2) return;
+
+      const type = parts[0];
+      switch (type) {
+        case "H":
+          const bpm = parseInt(parts[1]);
+          if (!isNaN(bpm)) {
+            chartData.push({ x: new Date(), y: bpm });
+            if (chartData.length > 30) chartData.shift();
+            chart.render();
+          }
+          break;
+        case "A":
+          const [x, y, z] = parts.slice(1).map(parseFloat);
+          if ([x, y, z].every(val => !isNaN(val))) {
+            cube.rotation.x = y;
+            cube.rotation.y = x;
+            cube.rotation.z = z;
+          }
+          break;
+        case "T":
+          const temp = parseFloat(parts[1]);
+          if (!isNaN(temp)) {
+            document.getElementById("tempDisplay").innerText = "Temperatura: " + temp.toFixed(1) + "°C";
+          }
+          break;
+        case "S":
+          const steps = parseInt(parts[1]);
+          if (!isNaN(steps)) {
+            document.getElementById("stepCount").innerText = "Passos: " + steps;
+          }
+          break;
+      }
+    }
+
+    document.getElementById("btnConnectAll").addEventListener("click", function () {
+      if (connection) {
+        connection.close();
+        connection = undefined;
+        return;
+      }
+
+      Puck.connect(function (c) {
+        if (!c) {
+          alert("Erro ao conectar.");
+          return;
+        }
+        connection = c;
+
+        c.on("data", function (d) {
+          buffer += d;
+          var lines = buffer.split("\n");
+          buffer = lines.pop();
+          lines.forEach(handleData);
+        });
+
+        c.write("reset();\n", function () {
+          setTimeout(function () {
+            c.write("\x03\x10if(1){"+BANGLE_CODE+"}\n", function() {
+              console.log("Código enviado para o Bangle.js");
+            });
+          }, 1500);
+        });
       });
     });
-  });
   </script>
 </body>
 </html>
